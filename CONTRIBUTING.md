@@ -1,4 +1,4 @@
-# Contributing to nestjs-auth-adapter
+# Contributing to github-actions
 
 Thank you for your interest in contributing! 🎉
 

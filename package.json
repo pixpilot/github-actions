@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "private": true,
   "packageManager": "pnpm@10.14.0",
-  "description": "",
-  "author": "",
+  "description": "A collection of reusable GitHub composite actions for common CI/CD workflows",
+  "author": "Mo Doaie <m.doaie@hotmail.com>",
   "license": "MIT",
   "homepage": "https://github.com/pixpilot/github-actions#readme",
   "repository": {
