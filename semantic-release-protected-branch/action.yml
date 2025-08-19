@@ -60,10 +60,8 @@
 #
 #       - name: Setup project
 #         uses: ./.github/actions/setup-project
-#         with:
-#           registry-url: 'https://registry.npmjs.org'
 #
-#       - uses: pixpilot/github/actions/semantic-release-protected-branch@main
+#       - uses: pixpilot/github-actions/semantic-release-protected-branch@main
 #         with:
 #           GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
 #           USER_ID: ${{ steps.generate_token.outputs.user-id }}

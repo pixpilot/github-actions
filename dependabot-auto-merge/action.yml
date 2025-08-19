@@ -50,7 +50,7 @@
 #     if: ${{ github.actor == 'dependabot[bot]' }}
 #     runs-on: ubuntu-latest
 #     steps:
-#       - uses: pixpilot/github/actions/dependabot-auto-merge@main
+#       - uses: pixpilot/github-actions/dependabot-auto-merge@main
 #         with:
 #           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # or your GitHub App token
 # ```
