@@ -1,16 +1,16 @@
 {
-  "name": "@pixpilot/github-actions",
+  "name": "github-actions",
   "type": "commonjs",
   "version": "1.0.0",
   "private": true,
   "packageManager": "pnpm@10.14.0",
   "description": "A collection of reusable GitHub composite actions for common CI/CD workflows",
-  "author": "Mo Doaie <m.doaie@hotmail.com>",
+  "author": "m.doaie <m.doaie@hotmail.com>",
   "license": "MIT",
-  "homepage": "https://github.com/pixpilot/github-actions#readme",
+  "homepage": "https://github.com/pixpilot/github-actions",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pixpilot/github-actions.git"
+    "url": "https://github.com/pixpilot/github-actions.git"
   },
   "bugs": {
     "url": "https://github.com/pixpilot/github-actions/issues"
@@ -46,7 +46,7 @@
     "@commitlint/config-conventional": "^19.8.1",
     "@internal/prettier-config": "workspace:*",
     "@pixpilot/dev-config": "catalog:dev",
-    "@pixpilot/workspace-package-generator": "^1.0.3",
+    "@pixpilot/workspace-package-generator": "^2.1.1",
     "@turbo/gen": "^2.5.5",
     "@types/node": "catalog:dev",
     "@vitest/coverage-v8": "catalog:dev",
