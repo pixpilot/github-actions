@@ -1,4 +1,9 @@
 #!/usr/bin/env sh
-. "$(dirname "$0")/_/husky.sh"
 
-pnpm build
+if [ -n "$CI" ]; then
+	echo "Skipping pre-push in CI"
+	exit 0
+fi
+
+echo "Running tests before push..."
+pnpm test
