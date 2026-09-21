@@ -1,6 +1,7 @@
 packages:
   - 'dependabot-auto-merge'
   - 'semantic-release-protected-branch'
+  - 'setup-pnpm-project'
   - 'tooling/**'
 
 catalogs:
