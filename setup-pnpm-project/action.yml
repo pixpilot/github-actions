@@ -28,6 +28,10 @@
 #         with:
 #           registry-url: 'https://registry.npmjs.org'
 #           build: 'false'
+#           # only when the repo depends on private packages
+#           npm-auth-registry: 'https://npm.pkg.github.com/'
+#           npm-auth-token: ${{ secrets.GH_PACKAGES_TOKEN }}
+#           npm-auth-scopes: '@my-org-private'
 #
 #       - run: pnpm lint
 # ```
@@ -60,6 +64,27 @@ inputs:
       Packages under a scope other than the repository owner, since setup-node
       otherwise defaults to the owner and would redirect unrelated scoped
       packages away from npmjs.
+    required: false
+
+  npm-auth-token:
+    description: >-
+      Token for installing private packages. When set, credentials are written
+      to ~/.npmrc before `pnpm install` via the setup-npm-auth action, and
+      `npm-auth-registry` must be set too. Leave empty when every dependency is
+      public.
+    required: false
+
+  npm-auth-registry:
+    description: >-
+      Full URL of the registry `npm-auth-token` authenticates against, for
+      example `https://npm.pkg.github.com/` or `https://npm.example.com/`.
+      Required whenever `npm-auth-token` is set.
+    required: false
+
+  npm-auth-scopes:
+    description: >-
+      Scopes to bind to `npm-auth-registry`, separated by commas or spaces.
+      Unrelated to `scope`, which only configures setup-node for publishing.
     required: false
 
   build:
@@ -97,6 +122,16 @@ runs:
         cache: pnpm
         registry-url: ${{ inputs.registry-url }}
         scope: ${{ inputs.scope }}
+
+    # Runs after setup-node so it appends to, rather than is overwritten by,
+    # any registry block setup-node wrote.
+    - name: Authenticate with the package registry
+      if: ${{ inputs.npm-auth-token != '' }}
+      uses: pixpilot/github-actions/setup-npm-auth@v1
+      with:
+        token: ${{ inputs.npm-auth-token }}
+        registry: ${{ inputs.npm-auth-registry }}
+        scopes: ${{ inputs.npm-auth-scopes }}
 
     - name: Install dependencies
       run: pnpm install

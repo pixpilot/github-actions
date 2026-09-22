@@ -1,0 +1,122 @@
+# -------------------------------------------------------------------------------------
+# 🔧 Reusable GitHub Action: Setup npm Auth
+#
+# ✅ Description:
+# Writes registry credentials to the runner's `~/.npmrc` so npm/pnpm/yarn can
+# install private packages:
+#   - Binds one or more scopes to a registry
+#   - Stores the auth token for that registry's host
+#
+# 🌐 Registry-agnostic: `registry` takes any npm-compatible registry - GitHub
+# Packages, npmjs, Verdaccio, Artifactory, a private proxy. The auth key is
+# derived from whatever URL is passed, so nothing here is GitHub-specific.
+#
+# 🔐 Note for GitHub Packages (`https://npm.pkg.github.com/`):
+# `GITHUB_TOKEN` only grants access to packages owned by the *current*
+# repository. Installing a private package published from a different repo or
+# organisation needs a classic PAT with the `read:packages` scope (SSO-authorised
+# for that organisation), stored as a repository or organisation secret.
+#
+# 🔒 The token is written to `$HOME/.npmrc` on the runner, never to the checkout,
+# so it cannot be committed. Actions masks the value in logs.
+#
+# ⚠️ On self-hosted runners `~/.npmrc` persists between jobs.
+# -------------------------------------------------------------------------------------
+# 🧪 Example usage in workflow:
+#
+# ```yaml
+# jobs:
+#   ci:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+#
+#       - uses: pixpilot/github-actions/setup-npm-auth@v1
+#         with:
+#           registry: 'https://npm.pkg.github.com/'
+#           token: ${{ secrets.GH_PACKAGES_TOKEN }}
+#           scopes: '@my-org-private'
+#
+#       - run: pnpm install
+# ```
+#
+# Any other registry works the same way:
+#
+# ```yaml
+#       - uses: pixpilot/github-actions/setup-npm-auth@v1
+#         with:
+#           registry: 'https://npm.example.com/'
+#           token: ${{ secrets.PRIVATE_REGISTRY_TOKEN }}
+#           scopes: '@acme'
+# ```
+# -------------------------------------------------------------------------------------
+
+name: Setup npm auth
+description: Write registry credentials to ~/.npmrc so private packages can be installed
+
+inputs:
+  registry:
+    description: >-
+      Registry the token authenticates against, as a full URL, for example
+      `https://npm.pkg.github.com/` or `https://npm.example.com/`. The trailing
+      slash is optional.
+    required: true
+
+  token:
+    description: >-
+      Auth token for `registry`. For GitHub Packages this is a classic PAT with
+      the read:packages scope, not GITHUB_TOKEN, unless every private package is
+      published from this same repository.
+    required: true
+
+  scopes:
+    description: >-
+      Scopes to bind to `registry`, separated by commas or spaces, with or
+      without the leading `@` (for example `@acme-private, @acme-internal`).
+      Optional: a lockfile that records absolute tarball URLs resolves without
+      it, but `pnpm add` and `pnpm update` need the mapping.
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - name: Write registry credentials
+      shell: bash
+      env:
+        NPM_AUTH_TOKEN: ${{ inputs.token }}
+        NPM_AUTH_REGISTRY: ${{ inputs.registry }}
+        NPM_AUTH_SCOPES: ${{ inputs.scopes }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "${NPM_AUTH_TOKEN}" ]; then
+          echo "::error::No registry token was provided, so private packages will fail to install with a 401. Pass a token that can read them - for GitHub Packages, a classic PAT with the read:packages scope, authorised for the owning organisation and stored as a secret."
+          exit 1
+        fi
+
+        if [ -z "${NPM_AUTH_REGISTRY}" ]; then
+          echo "::error::No registry was provided. Pass the full URL of the registry the token authenticates against, for example registry: 'https://npm.pkg.github.com/'."
+          exit 1
+        fi
+
+        # npm looks credentials up by registry URL without its scheme, and the
+        # key must carry a trailing slash for the lookup to match.
+        registry="${NPM_AUTH_REGISTRY%/}/"
+        auth_key="//${registry#*://}"
+
+        npmrc="$HOME/.npmrc"
+        touch "$npmrc"
+        chmod 600 "$npmrc"
+
+        # Appending rather than overwriting keeps any registry block that
+        # actions/setup-node already wrote.
+        {
+          for scope in ${NPM_AUTH_SCOPES//,/ }; do
+            scope="${scope#@}"
+            [ -n "$scope" ] || continue
+            echo "@${scope}:registry=${registry}"
+          done
+          printf '%s:_authToken=%s\n' "$auth_key" "$NPM_AUTH_TOKEN"
+        } >> "$npmrc"
+
+        echo "Configured credentials for ${registry}"

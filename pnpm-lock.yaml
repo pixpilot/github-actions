@@ -94,6 +94,10 @@ importers:
 
   semantic-release-protected-branch: {}
 
+  setup-npm-auth: {}
+
+  setup-pnpm-project: {}
+
   tooling/eslint:
     dependencies:
       '@pixpilot/dev-config':
