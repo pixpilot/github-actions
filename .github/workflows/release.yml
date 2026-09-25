@@ -1,0 +1,47 @@
+# Releases the actions after CI passes on main.
+# semantic-release picks the version from conventional commits (feat → minor,
+# fix → patch, BREAKING CHANGE → major), tags it (e.g. v1.4.0), publishes a
+# GitHub release, and semantic-release-major-tag moves the floating major tag
+# (v1) to the same commit so `@v1` consumers get the update.
+
+name: Release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  release:
+    if: >-
+      ${{
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        !contains(github.event.workflow_run.head_commit.message || '', '[skip ci]') &&
+        !contains(github.event.workflow_run.head_commit.message || '', '[ci skip]')
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Semantic Release
+        uses: cycjimmy/semantic-release-action@v4.2.2
+        with:
+          extra_plugins: |
+            semantic-release-major-tag@0.3.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
