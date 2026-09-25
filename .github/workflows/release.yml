@@ -48,6 +48,7 @@ jobs:
 
   notify:
     name: Notify Release Check Status
+    needs: [release]
     if: always()
     runs-on: ubuntu-latest
 
