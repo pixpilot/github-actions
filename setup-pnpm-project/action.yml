@@ -3,6 +3,7 @@
 #
 # ✅ Description:
 # Prepares a pnpm-based repository for CI:
+#   - Optionally starts a Turborepo remote cache backed by the GitHub Actions cache
 #   - Installs pnpm (pinned version, or the one from `packageManager` / `pnpm-workspace.yaml`)
 #   - Installs Node.js with the pnpm store cache enabled
 #   - Runs `pnpm install`
@@ -28,6 +29,8 @@
 #         with:
 #           registry-url: 'https://registry.npmjs.org'
 #           build: 'false'
+#           # only for Turborepo repos whose turbo.json allows remote caching
+#           turbo-cache: 'true'
 #           # only when the repo depends on private packages
 #           npm-auth-registry: 'https://npm.pkg.github.com/'
 #           npm-auth-token: ${{ secrets.GH_PACKAGES_TOKEN }}
@@ -92,9 +95,25 @@ inputs:
     required: false
     default: 'false'
 
+  turbo-cache:
+    description: >-
+      Serve Turborepo's remote cache from the GitHub Actions cache via
+      pixpilot/turbo-persistent-cache, so `turbo` commands later in the job
+      reuse task outputs from earlier runs. turbo.json must not set
+      `remoteCache.enabled` to false. It overrides any existing `TURBO_API` and
+      `TURBO_TOKEN`, so leave it off when using Vercel Remote Cache.
+    required: false
+    default: 'false'
+
 runs:
   using: composite
   steps:
+    # First, so turbo commands run by install scripts or the build step below
+    # are cached too.
+    - name: Start Turborepo cache server
+      if: ${{ inputs.turbo-cache == 'true' }}
+      uses: pixpilot/turbo-persistent-cache@v1
+
     - name: Install pnpm
       uses: pnpm/action-setup@v4
       if: ${{ inputs.pnpm-version != '' }}
