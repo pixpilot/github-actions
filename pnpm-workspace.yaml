@@ -3,6 +3,7 @@ packages:
   - 'semantic-release-protected-branch'
   - 'setup-npm-auth'
   - 'setup-pnpm-project'
+  - 'supabase-backup'
   - 'tooling/**'
 
 catalogs:

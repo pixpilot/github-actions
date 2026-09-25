@@ -98,6 +98,8 @@ importers:
 
   setup-pnpm-project: {}
 
+  supabase-backup: {}
+
   tooling/eslint:
     dependencies:
       '@pixpilot/dev-config':

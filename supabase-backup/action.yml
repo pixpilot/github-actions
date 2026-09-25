@@ -1,0 +1,196 @@
+# -------------------------------------------------------------------------------------
+# 🔧 Reusable GitHub Action: Supabase Backup
+#
+# ✅ Description:
+# Takes an encrypted backup of a Supabase Postgres database and checks it landed:
+#   - Installs the PostgreSQL client (matching major) and `age`
+#   - Runs `@pixpilot/supabase-backup backup` to dump, encrypt and upload to R2
+#   - Runs `@pixpilot/supabase-backup status` to fail the job when the newest
+#     backup is older than `max-age-hours`
+#
+# 📦 `package-version` is a major range, so fixes arrive but a breaking release
+# never does. The CLI flags used below are the 3.x interface: bump the default
+# in the same commit that adopts a new major, never separately.
+#
+# ⚠️ Linux runners only - the PostgreSQL client is installed from apt.
+# ⚠️ Installs Node.js 22 via actions/setup-node, replacing any version set
+# earlier in the job.
+# -------------------------------------------------------------------------------------
+# 🧪 Example usage in workflow:
+#
+# ```yaml
+# on:
+#   schedule:
+#     - cron: '0 3 * * *'
+#   workflow_dispatch:
+#
+# permissions:
+#   contents: read
+#
+# jobs:
+#   backup:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: pixpilot/github-actions/supabase-backup@v1
+#         with:
+#           backup-prefix: 'my-project'
+#           age-recipient: ${{ vars.BACKUP_AGE_RECIPIENT }}
+#           r2-endpoint: ${{ vars.R2_ENDPOINT }}
+#           r2-bucket: ${{ vars.R2_BUCKET }}
+#           database-url: ${{ secrets.SUPABASE_DATABASE_URL }}
+#           r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+#           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+# ```
+# -------------------------------------------------------------------------------------
+
+name: Supabase backup
+description: Create an age-encrypted Supabase Postgres backup in R2 and verify its freshness
+
+inputs:
+  backup-prefix:
+    description: Key prefix the backups are stored under in the bucket.
+    required: true
+
+  age-recipient:
+    description: age public key (`age1...`) the backup is encrypted to.
+    required: true
+
+  r2-endpoint:
+    description: R2 S3-compatible endpoint URL.
+    required: true
+
+  r2-bucket:
+    description: R2 bucket the backups are uploaded to.
+    required: true
+
+  database-url:
+    description: Postgres connection string of the database to back up. Pass it from a secret.
+    required: true
+
+  r2-access-key-id:
+    description: R2 access key ID. Pass it from a secret.
+    required: true
+
+  r2-secret-access-key:
+    description: R2 secret access key. Pass it from a secret.
+    required: true
+
+  max-age-hours:
+    description: The health check fails when the newest backup is older than this.
+    required: false
+    default: '36'
+
+  postgres-client-version:
+    description: >-
+      PostgreSQL client major version. Must be at least the server's major
+      version, or pg_dump refuses to run.
+    required: false
+    default: '17'
+
+  app-schemas:
+    description: >-
+      Schemas to back up. Empty backs up every schema the project owns; name
+      schemas only to restrict the run to exactly those.
+    required: false
+    default: ''
+
+  exclude-schemas:
+    description: Schemas to leave out of the backup.
+    required: false
+    default: ''
+
+  package-version:
+    description: >-
+      Version or range of @pixpilot/supabase-backup to run. Defaults to the
+      3.x major the flags in this action are written for.
+    required: false
+    default: '3'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Install PostgreSQL client and age
+      shell: bash
+      env:
+        PG_MAJOR: ${{ inputs.postgres-client-version }}
+      run: |
+        set -euo pipefail
+
+        if [ "$RUNNER_OS" != Linux ]; then
+          echo "::error::supabase-backup installs the PostgreSQL client from apt, so it only runs on Linux runners. Use runs-on: ubuntu-latest."
+          exit 1
+        fi
+
+        key=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+        sudo install -d /usr/share/postgresql-common/pgdg
+        sudo curl -fsSL -o "$key" https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        repo="deb [signed-by=$key] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main"
+        echo "$repo" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+        sudo apt-get update
+        sudo apt-get install --yes "postgresql-client-$PG_MAJOR" age
+        echo "/usr/lib/postgresql/$PG_MAJOR/bin" >> "$GITHUB_PATH"
+
+    - name: Verify PostgreSQL client tools agree
+      shell: bash
+      run: |
+        set -euo pipefail
+        command -v pg_dump pg_restore psql
+        pg_dump --version
+        pg_restore --version
+        psql --version
+
+    - name: Create encrypted backup
+      shell: bash
+      env:
+        SOURCE_DATABASE_URL: ${{ inputs.database-url }}
+        BACKUP_AGE_RECIPIENT: ${{ inputs.age-recipient }}
+        R2_ACCESS_KEY_ID: ${{ inputs.r2-access-key-id }}
+        R2_SECRET_ACCESS_KEY: ${{ inputs.r2-secret-access-key }}
+        R2_ENDPOINT: ${{ inputs.r2-endpoint }}
+        R2_BUCKET: ${{ inputs.r2-bucket }}
+        BACKUP_PREFIX: ${{ inputs.backup-prefix }}
+        APP_SCHEMAS: ${{ inputs.app-schemas }}
+        EXCLUDE_SCHEMAS: ${{ inputs.exclude-schemas }}
+        PACKAGE_VERSION: ${{ inputs.package-version }}
+      run: |
+        set -euo pipefail
+
+        # `@3` resolves to whichever 3.x is newest today, so the log records
+        # both what was asked for and what the CLI reports it actually is.
+        echo "Requested @pixpilot/supabase-backup@$PACKAGE_VERSION (set the package-version input to pin a different release)."
+
+        # Left out entirely, the backup takes every schema the project owns.
+        schema_flags=()
+        if [ -n "$APP_SCHEMAS" ]; then schema_flags+=(--schemas "$APP_SCHEMAS"); fi
+        if [ -n "$EXCLUDE_SCHEMAS" ]; then schema_flags+=(--exclude-schemas "$EXCLUDE_SCHEMAS"); fi
+
+        npx --yes "@pixpilot/supabase-backup@$PACKAGE_VERSION" backup --no-input \
+          --source-database-url "$SOURCE_DATABASE_URL" \
+          --age-recipient "$BACKUP_AGE_RECIPIENT" \
+          --r2-access-key-id "$R2_ACCESS_KEY_ID" \
+          --r2-secret-access-key "$R2_SECRET_ACCESS_KEY" \
+          --r2-endpoint "$R2_ENDPOINT" --r2-bucket "$R2_BUCKET" \
+          --prefix "$BACKUP_PREFIX" "${schema_flags[@]}"
+
+    - name: Verify backup health
+      shell: bash
+      env:
+        R2_ACCESS_KEY_ID: ${{ inputs.r2-access-key-id }}
+        R2_SECRET_ACCESS_KEY: ${{ inputs.r2-secret-access-key }}
+        R2_ENDPOINT: ${{ inputs.r2-endpoint }}
+        R2_BUCKET: ${{ inputs.r2-bucket }}
+        BACKUP_PREFIX: ${{ inputs.backup-prefix }}
+        PACKAGE_VERSION: ${{ inputs.package-version }}
+        MAX_AGE_HOURS: ${{ inputs.max-age-hours }}
+      run: |
+        set -euo pipefail
+
+        npx --yes "@pixpilot/supabase-backup@$PACKAGE_VERSION" status --no-input \
+          --r2-access-key-id "$R2_ACCESS_KEY_ID" \
+          --r2-secret-access-key "$R2_SECRET_ACCESS_KEY" \
+          --r2-endpoint "$R2_ENDPOINT" --r2-bucket "$R2_BUCKET" \
+          --prefix "$BACKUP_PREFIX" --max-age-hours "$MAX_AGE_HOURS"
