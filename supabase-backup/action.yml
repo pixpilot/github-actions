@@ -14,7 +14,9 @@
 #
 # 🔒 The CLI is installed in its own step, without the credentials in its
 # environment and with install scripts disabled, so a dependency's install
-# script cannot read them.
+# script cannot read them. The database URL and R2 keys reach the CLI through
+# the environment (`--secrets-from-env`, CLI 3.9.0 and later) rather than as
+# arguments, so they never appear in the process list.
 #
 # ⚠️ Linux runners only - the PostgreSQL client is installed from apt.
 # ⚠️ Installs Node.js 22 via actions/setup-node, replacing any version set
@@ -189,11 +191,11 @@ runs:
         if [ -n "$APP_SCHEMAS" ]; then schema_flags+=(--schemas "$APP_SCHEMAS"); fi
         if [ -n "$EXCLUDE_SCHEMAS" ]; then schema_flags+=(--exclude-schemas "$EXCLUDE_SCHEMAS"); fi
 
-        "$SUPABASE_BACKUP" backup --no-input \
-          --source-database-url "$SOURCE_DATABASE_URL" \
+        # --secrets-from-env reads SOURCE_DATABASE_URL, R2_ACCESS_KEY_ID, and
+        # R2_SECRET_ACCESS_KEY from the step's env, so they stay out of the
+        # process arguments.
+        "$SUPABASE_BACKUP" backup --no-input --secrets-from-env \
           --age-recipient "$BACKUP_AGE_RECIPIENT" \
-          --r2-access-key-id "$R2_ACCESS_KEY_ID" \
-          --r2-secret-access-key "$R2_SECRET_ACCESS_KEY" \
           --r2-endpoint "$R2_ENDPOINT" --r2-bucket "$R2_BUCKET" \
           --prefix "$BACKUP_PREFIX" "${schema_flags[@]}"
 
@@ -210,8 +212,6 @@ runs:
       run: |
         set -euo pipefail
 
-        "$SUPABASE_BACKUP" status --no-input \
-          --r2-access-key-id "$R2_ACCESS_KEY_ID" \
-          --r2-secret-access-key "$R2_SECRET_ACCESS_KEY" \
+        "$SUPABASE_BACKUP" status --no-input --secrets-from-env \
           --r2-endpoint "$R2_ENDPOINT" --r2-bucket "$R2_BUCKET" \
           --prefix "$BACKUP_PREFIX" --max-age-hours "$MAX_AGE_HOURS"

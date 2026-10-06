@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -49,7 +49,16 @@ jobs:
   notify:
     name: Notify Release Check Status
     needs: [release]
-    if: always()
+    # Only for CI runs of a push to main, the only ones that can release: a fork
+    # PR from a branch named main completes CI here too. A failed CI run skips
+    # the release job, so its conclusion is reported below instead of the
+    # skipped job passing for success.
+    if: >-
+      ${{
+        always() &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main'
+      }}
     runs-on: ubuntu-latest
     # Only talks to Telegram, so it gets none of the release job's write access.
     permissions: {}
@@ -58,7 +67,14 @@ jobs:
       - name: Send Telegram release-check-status notification
         uses: pixpilot/notify-action@v1
         with:
-          status: ${{ contains(needs.*.result, 'failure') && 'failure' || contains(needs.*.result, 'cancelled') && 'cancelled' || 'success' }}
+          status: >-
+            ${{
+              github.event.workflow_run.conclusion == 'cancelled' && 'cancelled' ||
+              github.event.workflow_run.conclusion != 'success' && 'failure' ||
+              contains(needs.*.result, 'failure') && 'failure' ||
+              contains(needs.*.result, 'cancelled') && 'cancelled' ||
+              'success'
+            }}
           notify-on: any
           telegram-bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           telegram-chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}
