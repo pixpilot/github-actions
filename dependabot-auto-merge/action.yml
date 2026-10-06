@@ -26,8 +26,11 @@
 #
 #   - ✅ Why this action is safe:
 #       - It does **not** check out or run PR code
-#       - It only uses PR metadata (title, URL)
-#       - It executes **safe, read-only `gh` commands**
+#       - It only uses PR metadata (title, URL), passed to the shell through `env`
+#         so it is never parsed as script
+#       - It only edits the PR title and enables auto-merge with `gh`
+#       - Every step requires the PR to be authored by Dependabot, and
+#         dependabot/fetch-metadata fails the job for any other author
 #
 # 🛡️ Therefore, this action is safe to use with `pull_request_target`, as long as:
 #       - You do not add steps that process or run PR code
@@ -47,10 +50,10 @@
 #
 #   dependabot:
 #     needs: [ci]
-#     if: ${{ github.actor == 'dependabot[bot]' }}
+#     if: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
 #     runs-on: ubuntu-latest
 #     steps:
-#       - uses: pixpilot/github-actions/dependabot-auto-merge@main
+#       - uses: pixpilot/github-actions/dependabot-auto-merge@v1
 #         with:
 #           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # or your GitHub App token
 # ```
@@ -67,29 +70,37 @@ inputs:
 runs:
   using: composite
   steps:
+    # github.actor alone is not enough: it names whoever triggered the event, so a
+    # Dependabot push to another author's branch would pass. The PR author has to
+    # be Dependabot too.
     - name: Only run for Dependabot PRs
-      if: ${{ github.actor == 'dependabot[bot]' }}
+      if: ${{ github.actor == 'dependabot[bot]' && github.event.pull_request.user.login == 'dependabot[bot]' }}
       shell: bash
       run: echo "Running auto-merge for dependabot[bot]"
 
     - name: Fetch Dependabot metadata
       id: metadata
-      uses: dependabot/fetch-metadata@v2.1.0
+      uses: dependabot/fetch-metadata@5e5f99653a5b510e8555840e80cbf1514ad4af38 # v2.1.0
       with:
         github-token: '${{ inputs.GITHUB_TOKEN }}'
 
+    # The title reaches the script through env, never ${{ }}: interpolated, its
+    # text would be parsed as shell and could run commands.
     - name: Update PR title for production dependencies
-      if: ${{ steps.metadata.outputs.dependency-type == 'direct:production' && github.actor == 'dependabot[bot]' }}
+      if: ${{ steps.metadata.outputs.dependency-type == 'direct:production' && github.actor == 'dependabot[bot]' && github.event.pull_request.user.login == 'dependabot[bot]' }}
       shell: bash
       run: |
-        NEW_TITLE=$(echo "${{ github.event.pull_request.title }}" | sed 's/^chore(deps)/fix(deps)/')
-        gh pr edit "${{ github.event.pull_request.html_url }}" --title "$NEW_TITLE"
+        NEW_TITLE=$(printf '%s\n' "$PR_TITLE" | sed 's/^chore(deps)/fix(deps)/')
+        gh pr edit "$PR_URL" --title "$NEW_TITLE"
       env:
         GITHUB_TOKEN: ${{ inputs.GITHUB_TOKEN }}
+        PR_TITLE: ${{ github.event.pull_request.title }}
+        PR_URL: ${{ github.event.pull_request.html_url }}
 
     - name: Enable auto-merge for Dependabot PRs
-      if: ${{ github.actor == 'dependabot[bot]' }}
+      if: ${{ github.actor == 'dependabot[bot]' && github.event.pull_request.user.login == 'dependabot[bot]' }}
       shell: bash
-      run: gh pr merge --auto --squash "${{ github.event.pull_request.html_url }}"
+      run: gh pr merge --auto --squash "$PR_URL"
       env:
         GITHUB_TOKEN: ${{ inputs.GITHUB_TOKEN }}
+        PR_URL: ${{ github.event.pull_request.html_url }}

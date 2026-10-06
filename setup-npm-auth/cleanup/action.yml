@@ -1,0 +1,20 @@
+# -------------------------------------------------------------------------------------
+# 🔧 Internal to setup-npm-auth: credential cleanup
+#
+# Composite actions cannot run a step when the job ends, so setup-npm-auth calls
+# this JavaScript action, whose post step removes the npmrc lines setup-npm-auth
+# appended. Not meant to be used on its own.
+# -------------------------------------------------------------------------------------
+
+name: Setup npm auth cleanup
+description: Remove the registry credentials setup-npm-auth wrote when the job ends
+
+inputs:
+  state:
+    description: State file written by setup-npm-auth, naming the npmrc and the lines it appended.
+    required: true
+
+runs:
+  using: node24
+  main: main.js
+  post: post.js

@@ -23,7 +23,10 @@
 # Actions masks the value in logs. Keys setup-node already wrote are never
 # overridden, so its NODE_AUTH_TOKEN-based publish auth is unchanged.
 #
-# ⚠️ On self-hosted runners `~/.npmrc` persists between jobs.
+# 🧹 When the job ends, a post step removes the lines this action added, so the
+# token does not stay behind in `~/.npmrc` on self-hosted runners that keep
+# their home directory between jobs. It needs a runner that supports node24
+# actions.
 # -------------------------------------------------------------------------------------
 # 🧪 Example usage in workflow:
 #
@@ -84,6 +87,7 @@ runs:
   using: composite
   steps:
     - name: Write registry credentials
+      id: write
       shell: bash
       env:
         NPM_AUTH_TOKEN: ${{ inputs.token }}
@@ -111,6 +115,8 @@ runs:
         # points NPM_CONFIG_USERCONFIG at it, after which npm and pnpm no longer
         # read ~/.npmrc. Add to that file then, so these credentials are used.
         npmrc="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+        created=false
+        [ -e "$npmrc" ] || created=true
         touch "$npmrc"
         chmod 600 "$npmrc"
 
@@ -154,6 +160,21 @@ runs:
             echo >> "$npmrc"
           fi
           printf '%s\n' "${lines[@]}" >> "$npmrc"
+
+          # Tells the cleanup step below exactly what to take back out when the
+          # job ends. RUNNER_TEMP is emptied after every job, so the token this
+          # file repeats does not outlive it either.
+          state="$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/setup-npm-auth.XXXXXX")"
+          { printf '%s\n' "$npmrc" "$created"; printf '%s\n' "${lines[@]}"; } > "$state"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
         fi
 
         echo "Configured credentials for ${registry} in ${npmrc}"
+
+    # Composite actions cannot run anything when the job ends, so a small
+    # JavaScript action does it: its post step removes the lines written above.
+    - name: Schedule registry credential cleanup
+      if: ${{ steps.write.outputs.state != '' }}
+      uses: pixpilot/github-actions/setup-npm-auth/cleanup@v1
+      with:
+        state: ${{ steps.write.outputs.state }}

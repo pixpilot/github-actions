@@ -12,6 +12,10 @@
 # never does. The CLI flags used below are the 3.x interface: bump the default
 # in the same commit that adopts a new major, never separately.
 #
+# 🔒 The CLI is installed in its own step, without the credentials in its
+# environment and with install scripts disabled, so a dependency's install
+# script cannot read them.
+#
 # ⚠️ Linux runners only - the PostgreSQL client is installed from apt.
 # ⚠️ Installs Node.js 22 via actions/setup-node, replacing any version set
 # earlier in the job.
@@ -143,9 +147,31 @@ runs:
         pg_restore --version
         psql --version
 
+    # No credentials in this step's environment, and --ignore-scripts, so nothing
+    # that runs while installing can reach them. The CLI's dependencies are pure
+    # JavaScript and need no install scripts.
+    - name: Install @pixpilot/supabase-backup
+      id: cli
+      shell: bash
+      env:
+        PACKAGE_VERSION: ${{ inputs.package-version }}
+      run: |
+        set -euo pipefail
+
+        prefix="$RUNNER_TEMP/supabase-backup-cli"
+        npm install --prefix "$prefix" --ignore-scripts --no-audit --no-fund \
+          "@pixpilot/supabase-backup@$PACKAGE_VERSION"
+
+        # A range resolves to whichever release is newest today, so the log
+        # records both what was asked for and what was installed.
+        installed="$(node -p "require('$prefix/node_modules/@pixpilot/supabase-backup/package.json').version")"
+        echo "Requested @pixpilot/supabase-backup@$PACKAGE_VERSION, installed $installed (set the package-version input to run a different release)."
+        echo "bin=$prefix/node_modules/.bin/supabase-backup" >> "$GITHUB_OUTPUT"
+
     - name: Create encrypted backup
       shell: bash
       env:
+        SUPABASE_BACKUP: ${{ steps.cli.outputs.bin }}
         SOURCE_DATABASE_URL: ${{ inputs.database-url }}
         BACKUP_AGE_RECIPIENT: ${{ inputs.age-recipient }}
         R2_ACCESS_KEY_ID: ${{ inputs.r2-access-key-id }}
@@ -155,20 +181,15 @@ runs:
         BACKUP_PREFIX: ${{ inputs.backup-prefix }}
         APP_SCHEMAS: ${{ inputs.app-schemas }}
         EXCLUDE_SCHEMAS: ${{ inputs.exclude-schemas }}
-        PACKAGE_VERSION: ${{ inputs.package-version }}
       run: |
         set -euo pipefail
-
-        # `@3` resolves to whichever 3.x is newest today, so the log records
-        # both what was asked for and what the CLI reports it actually is.
-        echo "Requested @pixpilot/supabase-backup@$PACKAGE_VERSION (set the package-version input to pin a different release)."
 
         # Left out entirely, the backup takes every schema the project owns.
         schema_flags=()
         if [ -n "$APP_SCHEMAS" ]; then schema_flags+=(--schemas "$APP_SCHEMAS"); fi
         if [ -n "$EXCLUDE_SCHEMAS" ]; then schema_flags+=(--exclude-schemas "$EXCLUDE_SCHEMAS"); fi
 
-        npx --yes "@pixpilot/supabase-backup@$PACKAGE_VERSION" backup --no-input \
+        "$SUPABASE_BACKUP" backup --no-input \
           --source-database-url "$SOURCE_DATABASE_URL" \
           --age-recipient "$BACKUP_AGE_RECIPIENT" \
           --r2-access-key-id "$R2_ACCESS_KEY_ID" \
@@ -179,17 +200,17 @@ runs:
     - name: Verify backup health
       shell: bash
       env:
+        SUPABASE_BACKUP: ${{ steps.cli.outputs.bin }}
         R2_ACCESS_KEY_ID: ${{ inputs.r2-access-key-id }}
         R2_SECRET_ACCESS_KEY: ${{ inputs.r2-secret-access-key }}
         R2_ENDPOINT: ${{ inputs.r2-endpoint }}
         R2_BUCKET: ${{ inputs.r2-bucket }}
         BACKUP_PREFIX: ${{ inputs.backup-prefix }}
-        PACKAGE_VERSION: ${{ inputs.package-version }}
         MAX_AGE_HOURS: ${{ inputs.max-age-hours }}
       run: |
         set -euo pipefail
 
-        npx --yes "@pixpilot/supabase-backup@$PACKAGE_VERSION" status --no-input \
+        "$SUPABASE_BACKUP" status --no-input \
           --r2-access-key-id "$R2_ACCESS_KEY_ID" \
           --r2-secret-access-key "$R2_SECRET_ACCESS_KEY" \
           --r2-endpoint "$R2_ENDPOINT" --r2-bucket "$R2_BUCKET" \

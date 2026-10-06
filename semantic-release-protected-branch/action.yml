@@ -61,7 +61,7 @@
 #       - name: Setup project
 #         uses: ./.github/actions/setup-project
 #
-#       - uses: pixpilot/github-actions/semantic-release-protected-branch@main
+#       - uses: pixpilot/github-actions/semantic-release-protected-branch@v1
 #         with:
 #           GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
 #           USER_ID: ${{ steps.generate_token.outputs.user-id }}
@@ -89,10 +89,15 @@ inputs:
 runs:
   using: composite
   steps:
+    # Inputs reach the script through env, never ${{ }}, so their text is not
+    # parsed as shell.
     - name: Configure Git user
+      env:
+        APP_SLUG: ${{ inputs.APP_SLUG }}
+        USER_ID: ${{ inputs.USER_ID }}
       run: |
-        git config --global user.name "${{ inputs.APP_SLUG }}[bot]"
-        git config --global user.email "${{ inputs.USER_ID }}+${{ inputs.APP_SLUG }}[bot]@users.noreply.github.com"
+        git config --global user.name "${APP_SLUG}[bot]"
+        git config --global user.email "${USER_ID}+${APP_SLUG}[bot]@users.noreply.github.com"
       shell: bash
 
     - name: Release with semantic-release

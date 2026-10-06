@@ -1,7 +1,15 @@
 version: 2
 updates:
   - package-ecosystem: github-actions
-    directory: /
+    # `/` only covers .github/workflows; each action's action.yml has to be
+    # listed for its pinned `uses:` SHAs to be kept up to date (actions without
+    # any `uses:` are left out, as Dependabot reports them as errors).
+    directories:
+      - /
+      - /dependabot-auto-merge
+      - /setup-npm-auth
+      - /setup-pnpm-project
+      - /supabase-backup
     schedule:
       interval: weekly
     groups:
