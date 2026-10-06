@@ -2,8 +2,9 @@
 # 🔧 Reusable GitHub Action: Setup npm Auth
 #
 # ✅ Description:
-# Writes registry credentials to the runner's `~/.npmrc` so npm/pnpm/yarn can
-# install private packages:
+# Writes registry credentials to the runner's `~/.npmrc` (or, after
+# actions/setup-node ran with a `registry-url`, to the `.npmrc` it points
+# NPM_CONFIG_USERCONFIG at) so npm/pnpm/yarn can install private packages:
 #   - Binds one or more scopes to a registry
 #   - Stores the auth token for that registry's host
 #
@@ -17,8 +18,10 @@
 # organisation needs a classic PAT with the `read:packages` scope (SSO-authorised
 # for that organisation), stored as a repository or organisation secret.
 #
-# 🔒 The token is written to `$HOME/.npmrc` on the runner, never to the checkout,
-# so it cannot be committed. Actions masks the value in logs.
+# 🔒 The token is written to `$HOME/.npmrc` (or setup-node's `.npmrc` in
+# RUNNER_TEMP) on the runner, never to the checkout, so it cannot be committed.
+# Actions masks the value in logs. Keys setup-node already wrote are never
+# overridden, so its NODE_AUTH_TOKEN-based publish auth is unchanged.
 #
 # ⚠️ On self-hosted runners `~/.npmrc` persists between jobs.
 # -------------------------------------------------------------------------------------
@@ -52,7 +55,7 @@
 # -------------------------------------------------------------------------------------
 
 name: Setup npm auth
-description: Write registry credentials to ~/.npmrc so private packages can be installed
+description: Write registry credentials to the npm user config so private packages can be installed
 
 inputs:
   registry:
@@ -104,19 +107,53 @@ runs:
         registry="${NPM_AUTH_REGISTRY%/}/"
         auth_key="//${registry#*://}"
 
-        npmrc="$HOME/.npmrc"
+        # actions/setup-node, given a registry-url, writes its own .npmrc and
+        # points NPM_CONFIG_USERCONFIG at it, after which npm and pnpm no longer
+        # read ~/.npmrc. Add to that file then, so these credentials are used.
+        npmrc="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
         touch "$npmrc"
         chmod 600 "$npmrc"
 
-        # Appending rather than overwriting keeps any registry block that
-        # actions/setup-node already wrote.
-        {
-          for scope in ${NPM_AUTH_SCOPES//,/ }; do
-            scope="${scope#@}"
-            [ -n "$scope" ] || continue
-            echo "@${scope}:registry=${registry}"
-          done
-          printf '%s:_authToken=%s\n' "$auth_key" "$NPM_AUTH_TOKEN"
-        } >> "$npmrc"
+        # The last value the file gives `key`, empty when it sets none.
+        current() {
+          awk -v key="$1=" 'index($0, key) == 1 { value = substr($0, length(key) + 1) } END { print value }' "$npmrc"
+        }
 
-        echo "Configured credentials for ${registry}"
+        # Appending keeps any registry block actions/setup-node already wrote. In
+        # ~/.npmrc a later line overrides an earlier one, so a rotated token
+        # still applies on self-hosted runners. In the file NPM_CONFIG_USERCONFIG
+        # names, a key that is already set is left alone: setup-node's auth line
+        # reads ${NODE_AUTH_TOKEN}, which publishing tools such as
+        # changesets-autopilot set to their own token.
+        lines=()
+        add() {
+          local key="$1" value="$2" existing
+          existing="$(current "$key")"
+          if [ -z "${NPM_CONFIG_USERCONFIG:-}" ] || [ -z "$existing" ]; then
+            lines+=("${key}=${value}")
+            return
+          fi
+          if [ "$existing" = '${NODE_AUTH_TOKEN}' ]; then
+            existing="${NODE_AUTH_TOKEN:-}"
+          fi
+          if [ "$existing" != "$value" ]; then
+            echo "::warning::${key} is already set in ${npmrc}, most likely by actions/setup-node's registry-url, so the value passed here is not applied. To authenticate that registry with this token, set NODE_AUTH_TOKEN on the step instead."
+          fi
+        }
+
+        for scope in ${NPM_AUTH_SCOPES//,/ }; do
+          scope="${scope#@}"
+          [ -n "$scope" ] || continue
+          add "@${scope}:registry" "$registry"
+        done
+        add "${auth_key}:_authToken" "$NPM_AUTH_TOKEN"
+
+        if [ "${#lines[@]}" -gt 0 ]; then
+          # setup-node leaves its file without a final newline.
+          if [ -s "$npmrc" ] && [ -n "$(tail -c 1 "$npmrc")" ]; then
+            echo >> "$npmrc"
+          fi
+          printf '%s\n' "${lines[@]}" >> "$npmrc"
+        fi
+
+        echo "Configured credentials for ${registry} in ${npmrc}"
