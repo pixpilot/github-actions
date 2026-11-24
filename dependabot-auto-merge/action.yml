@@ -80,7 +80,7 @@ runs:
 
     - name: Fetch Dependabot metadata
       id: metadata
-      uses: dependabot/fetch-metadata@5e5f99653a5b510e8555840e80cbf1514ad4af38 # v2.1.0
+      uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
       with:
         github-token: '${{ inputs.GITHUB_TOKEN }}'
 
