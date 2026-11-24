@@ -35,7 +35,7 @@
 #   ci:
 #     runs-on: ubuntu-latest
 #     steps:
-#       - uses: actions/checkout@v4
+#       - uses: actions/checkout@v7
 #
 #       - uses: pixpilot/github-actions/setup-npm-auth@v1
 #         with:
